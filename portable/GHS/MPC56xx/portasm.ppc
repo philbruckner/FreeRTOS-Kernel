@@ -1,0 +1,351 @@
+/*
+ * FreeRTOS Kernel V10.5.1
+ * Copyright (C) 2021 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ *
+ * SPDX-License-Identifier: MIT
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+ * https://www.FreeRTOS.org
+ * https://github.com/FreeRTOS
+ *
+ */
+
+#include "FreeRTOSConfig_asm.h"
+
+	.file	"portasm.ppc"
+
+        .extern pxCurrentTCB
+        .extern vTaskSwitchContext
+        .extern xTaskIncrementTick
+//    .extern vPortISRHandler
+
+#ifdef portDEBUG
+	.extern pxCurrentStack
+#endif
+
+        .global vPortStartFirstTask
+        .global vPortSystemCallHandler
+        .global vPortTickISR
+//    .global vPortISRWrapper
+
+.set    USPRG0, 256
+
+/* TCB_t */
+.set    pxTopOfStack, 0
+.set	pxStack,      0x40
+
+/* Interrupt Stack Frame */
+.set    BChainField,  0
+.set    NextLRField,  BChainField  + 4
+.set    r31Field,     NextLRField  + 4
+.set    r31hiField,   r31Field
+.set    r31loField,   r31hiField   + 4
+.set    r30Field,     r31Field     + 8
+.set    r29Field,     r30Field     + 8
+.set    r28Field,     r29Field     + 8
+.set    r27Field,     r28Field     + 8
+.set    r26Field,     r27Field     + 8
+.set    r25Field,     r26Field     + 8
+.set    r24Field,     r25Field     + 8
+.set    r23Field,     r24Field     + 8
+.set    r22Field,     r23Field     + 8
+.set    r21Field,     r22Field     + 8
+.set    r20Field,     r21Field     + 8
+.set    r19Field,     r20Field     + 8
+.set    r18Field,     r19Field     + 8
+.set    r17Field,     r18Field     + 8
+.set    r16Field,     r17Field     + 8
+.set    r15Field,     r16Field     + 8
+.set    r14Field,     r15Field     + 8
+.set    r13Field,     r14Field     + 8
+.set    r12Field,     r13Field     + 8
+.set    r11Field,     r12Field     + 8
+.set    r10Field,     r11Field     + 8
+.set    r9Field,      r10Field     + 8
+.set    r8Field,      r9Field      + 8
+.set    r7Field,      r8Field      + 8
+.set    r6Field,      r7Field      + 8
+.set    r5Field,      r6Field      + 8
+.set    r4Field,      r5Field      + 8
+.set    r3Field,      r4Field      + 8
+.set    r2Field,      r3Field      + 8
+.set    r0Field,      r2Field      + 8
+.set    accField,     r0Field      + 8
+.set    SPrevLRField, accField     + 12
+.set    PCField,      SPrevLRField + 4
+.set    MSRField,     PCField      + 4
+.set    USPRG0Field,  MSRField     + 4
+.set    CRField,      USPRG0Field  + 4
+.set    LRField,      CRField      + 4
+.set    CTRField,     LRField      + 4
+.set    XERField,     CTRField     + 4
+.set    SPEFSCRField, XERField     + 4
+.set    IFrameSize,   SPEFSCRField + 4
+.set    PrevLRField,  SPEFSCRField + 8
+
+
+.macro portSAVE_TASK
+
+        /* Add frame to stack, save SP, R31 & LR */
+        stwu    SP, -IFrameSize(SP)
+        stw     R31, r31loField(SP)
+        mflr    R31
+        stw     R31, LRField(SP)
+#ifdef portDEBUG
+        /* So debugger sees this in the call stack, */
+        /* save previous LR, then (below) overwrite */
+        /* it, and LR, with saved PC from SRR0.     */
+        lwz     R31, PrevLRField(SP)
+        stw     R31, SPrevLRField(SP)
+#endif
+        /* Save PC from SRR0 */
+        mfsrr0  R31
+        stw     R31, PCField(SP)
+#ifdef portDEBUG
+        mtlr    R31
+        stw     R31, PrevLRField(SP)
+#endif
+
+        /* Enable SPE. Note, will trash upper R31 */
+        mfmsr   R31
+        oris    R31, R31, 0x200
+        mtmsr   R31
+        isync
+
+        /* Save (trashed) upper R31, R30 - R2 & R0 */
+        evstwwe R31, r31hiField(SP)
+        evstdd  R30, r30Field(SP)
+        evstdd  R29, r29Field(SP)
+        evstdd  R28, r28Field(SP)
+        evstdd  R27, r27Field(SP)
+        evstdd  R26, r26Field(SP)
+        evstdd  R25, r25Field(SP)
+        evstdd  R24, r24Field(SP)
+        evstdd  R23, r23Field(SP)
+        evstdd  R22, r22Field(SP)
+        evstdd  R21, r21Field(SP)
+        evstdd  R20, r20Field(SP)
+        evstdd  R19, r19Field(SP)
+        evstdd  R18, r18Field(SP)
+        evstdd  R17, r17Field(SP)
+        evstdd  R16, r16Field(SP)
+        evstdd  R15, r15Field(SP)
+        evstdd  R14, r14Field(SP)
+        evstdd  R13, r13Field(SP)
+        evstdd  R12, r12Field(SP)
+        evstdd  R11, r11Field(SP)
+        evstdd  R10, r10Field(SP)
+        evstdd  R9, r9Field(SP)
+        evstdd  R8, r8Field(SP)
+        evstdd  R7, r7Field(SP)
+        evstdd  R6, r6Field(SP)
+        evstdd  R5, r5Field(SP)
+        evstdd  R4, r4Field(SP)
+        evstdd  R3, r3Field(SP)
+        evstdd  R2, r2Field(SP)
+        evstdd  R0, r0Field(SP)
+
+        /* Save ACC */
+        evandc      R2, R2, R2  /* R2 = 0 = R2 & ~R2 */
+        evaddsmiaaw R2, R2  /* R2 = ACC = R2 + ACC */
+        addi        R3, SP, accField
+        evstdd      R2, 0(R3)
+
+        /* Save MSR from SRR1, USPRG0, CR, CTR, XES, SPEFSCR */
+        mfsrr1  R2
+        stw     R2, MSRField(SP)
+        mfspr   R2, USPRG0
+        stw     R2, USPRG0Field(SP)
+        mfcr    R2
+        stw     R2, CRField(SP)
+        mfctr   R2
+        stw     R2, CTRField(SP)
+        mfxer   R2
+        stw     R2, XERField(SP)
+        mfspr   R2, spefscr
+        stw     R2, SPEFSCRField(SP)
+
+.endm
+
+
+.macro portSAVE_STACK_POINTER
+
+        /* Get the address of the TCB */
+        lis     R31, pxCurrentTCB@ha
+        lwz     R31, pxCurrentTCB@l(R31)
+
+        /* Save the task stack pointer to the TCB */
+        stw     SP, pxTopOfStack(R31)
+
+.endm
+
+
+.macro portRESTORE_STACK_POINTER
+
+        /* Get the address of the TCB */
+        lis     SP, pxCurrentTCB@ha
+        lwz     SP, pxCurrentTCB@l(SP)
+
+#ifdef portDEBUG
+        /* Update stack area pointer for __stkchk */
+	lwz	R2, pxStack(SP)
+	lis	R3, pxCurrentStack@ha
+	stw	R2, pxCurrentStack@l(R3)
+#endif
+
+        /* Get the task stack pointer from the TCB */
+        lwz     SP, pxTopOfStack(SP)
+
+.endm
+
+
+.macro portRESTORE_TASK
+
+        /* Restore SPEFSCR, XER, CTR, LR, CR, USPRG0 */
+        lwz     R2, SPEFSCRField(SP)
+        mtspr   spefscr, R2
+        lwz     R2, XERField(SP)
+        mtxer   R2
+        lwz     R2, CTRField(SP)
+        mtctr   R2
+        lwz     R2, LRField(SP)
+        mtlr    R2
+        lwz     R2, CRField(SP)
+        mtcr    R2
+        lwz     R2, USPRG0Field(SP)
+        mtspr   USPRG0, R2
+
+        /* Restore MSR & PC to SRR1 & SRR0 for rfi */
+        lwz     R2, MSRField(SP)
+        mtsrr1  R2
+        lwz     R2, PCField(SP)
+        mtsrr0  R2
+#ifdef portDEBUG
+        /* Restore previous LR */
+        lwz     R2, SPrevLRField(SP)
+        stw     R2, PrevLRField(SP)
+#endif
+
+        /* Restore ACC */
+        addi    R2, SP, accField
+        evldd   R2, 0(R2)
+        evmra   R2, R2  /* R2 = ACC = R2 */
+
+        /* Restore R0, R2 - R30, and (partially trashed) R31 */
+        evldd   R0, r0Field(SP)
+        evldd   R2, r2Field(SP)
+        evldd   R3, r3Field(SP)
+        evldd   R4, r4Field(SP)
+        evldd   R5, r5Field(SP)
+        evldd   R6, r6Field(SP)
+        evldd   R7, r7Field(SP)
+        evldd   R8, r8Field(SP)
+        evldd   R9, r9Field(SP)
+        evldd   R10, r10Field(SP)
+        evldd   R11, r11Field(SP)
+        evldd   R12, r12Field(SP)
+        evldd   R13, r13Field(SP)
+        evldd   R14, r14Field(SP)
+        evldd   R15, r15Field(SP)
+        evldd   R16, r16Field(SP)
+        evldd   R17, r17Field(SP)
+        evldd   R18, r18Field(SP)
+        evldd   R19, r19Field(SP)
+        evldd   R20, r20Field(SP)
+        evldd   R21, r21Field(SP)
+        evldd   R22, r22Field(SP)
+        evldd   R23, r23Field(SP)
+        evldd   R24, r24Field(SP)
+        evldd   R25, r25Field(SP)
+        evldd   R26, r26Field(SP)
+        evldd   R27, r27Field(SP)
+        evldd   R28, r28Field(SP)
+        evldd   R29, r29Field(SP)
+        evldd   R30, r30Field(SP)
+        evldd   R31, r31Field(SP)
+
+        /* Remove frame from stack */
+        addi    SP, SP, IFrameSize
+
+        /* Return to task */
+        rfi
+
+.endm
+
+
+vPortStartFirstTask:
+
+        portRESTORE_STACK_POINTER
+        portRESTORE_TASK
+
+	.type	vPortStartFirstTask,@function
+	.size	vPortStartFirstTask,$-vPortStartFirstTask
+
+        .section ".isrs", "ax"
+
+        .align  4
+
+vPortSystemCallHandler:
+
+        portSAVE_TASK
+        portSAVE_STACK_POINTER
+
+        bl      vTaskSwitchContext
+
+        portRESTORE_STACK_POINTER
+        portRESTORE_TASK
+
+	.scall	vTaskSwitchContext
+	.type	vPortSystemCallHandler,@function
+	.size	vPortSystemCallHandler,$-vPortSystemCallHandler
+
+        .align  4
+
+vPortTickISR:
+
+        portSAVE_TASK
+        portSAVE_STACK_POINTER
+
+        bl      xTaskIncrementTick
+#if configUSE_PREEMPTION == 1
+        bl      vTaskSwitchContext
+#endif
+        /* Clear decrementer interrupt */
+        lis     R0, 0x0800
+        mttsr   R0
+
+        portRESTORE_STACK_POINTER
+        portRESTORE_TASK
+
+	.scall	xTaskIncrementTick
+#if configUSE_PREEMPTION == 1
+	.scall	vTaskSwitchContext
+#endif
+	.type	vPortTickISR,@function
+	.size	vPortTickISR,$-vPortTickISR
+
+        .previous
+
+
+//vPortISRWrapper:
+//
+//	portSAVE_STACK_POINTER_AND_LR
+//	bl vPortISRHandler
+//	portRESTORE_STACK_POINTER_AND_LR
+//	blr

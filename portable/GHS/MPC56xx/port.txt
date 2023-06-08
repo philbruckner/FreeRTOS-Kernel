@@ -1,0 +1,54 @@
+Interrupt Stack Frame
+=====================
+
+byte  word desc
+----- ---- ----------
+0x000    0 SP, backchain
+0x004    1 next LR
+0x008    2 double R31
+0x010    4 double R30
+0x018    6 double R29
+0x020    8 double R28
+0x028   10 double R27
+0x030   12 double R26
+0x038   14 double R25
+0x040   16 double R24
+0x048   18 double R23 (possible globalreg)
+0x050   20 double R22 (possible globalreg)
+0x058   22 double R21 (possible globalreg)
+0x060   24 double R20 (possible globalreg)
+0x068   26 double R19 (possible globalreg)
+0x070   28 double R18 (possible globalreg)
+0x078   30 double R17 (possible globalreg)
+0x080   32 double R16 (possible globalreg)
+0x088   34 double R15 (possible globalreg)
+0x090   36 double R14 (possible globalreg)
+0x098   38 double R13, RW SDA in lower word (39)
+0x0a0   40 double R12
+0x0a8   42 double R11
+0x0b0   44 double R10
+0x0b8   46 double R9
+0x0c0   48 double R8
+0x0c8   50 double R7
+0x0d0   52 double R6
+0x0d8   54 double R5
+0x0e0   56 double R4
+0x0e8   58 double R3, pvParameters in lower word (59)
+0x0f0   60 double R2, RO SDA in lower word (61)
+0x0f8   62 double R0
+0x100   64 double ACC
+0x108   66 pad
+0x10c   67 prev SP
+0x110   68 SRR0/PC, pxCode
+0x114   69 SRR1/MSR, portINITIAL_MSR
+0x118   70 USPRG0
+0x11c   71 CR
+0x120   72 LR, vPortEndScheduler
+0x124   73 CTR
+0x128   74 XER
+0x12c   75 SPEFSCR
+------------------ Bottom of stack
+0x130   76 prev SP, NULL
+0x134   77 LR, NULL
+0x138   78 pad
+0x13c   79 DEADBEEF, debug bottom of stack marker
